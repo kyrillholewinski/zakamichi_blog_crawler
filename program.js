@@ -13,6 +13,7 @@ import {
     addDesiredMember,
     removeDesiredMember,
     parseDateTime,
+    ConvertMessage,
 } from './global.js';
 
 // If you keep your "controller" modules in a folder "controller", import them:
@@ -20,6 +21,7 @@ import { Hinatazaka46_Crawler } from './controller/hinatazaka.js';
 import { Sakurazaka46_Crawler } from './controller/sakurazaka.js';
 import { Nogizaka46_Crawler } from './controller/nogizaka.js';
 import { Bokuao_Crawler } from './controller/bokuao.js';
+import { runApiExample } from './controller/message.js';
 
 // Create the prompt instance
 const prompt = promptSync({ sigint: true });
@@ -73,12 +75,16 @@ function padString(input, width) {
 }
 
 // If you want a single function to gather all group members (like in your code):
-function getFullMemberList() {
+async function getFullMemberList() {
+    const Hinatazaka46_Blogs = await getJsonList(Hinatazaka46_BlogStatus_FilePath);
+    const Sakurazaka46_Blogs = await getJsonList(Sakurazaka46_BlogStatus_FilePath);
+    const Nogizaka46_Blogs = await getJsonList(Nogizaka46_BlogStatus_FilePath);
+    const Bokuao_Blogs = await getJsonList(Bokuao_BlogStatus_FilePath);
     return [
-        ...getJsonList(Hinatazaka46_BlogStatus_FilePath),
-        ...getJsonList(Sakurazaka46_BlogStatus_FilePath),
-        ...getJsonList(Nogizaka46_BlogStatus_FilePath),
-        ...getJsonList(Bokuao_BlogStatus_FilePath),
+        ...Hinatazaka46_Blogs,
+        ...Sakurazaka46_Blogs,
+        ...Nogizaka46_Blogs,
+        ...Bokuao_Blogs,
     ];
 }
 
@@ -114,6 +120,9 @@ async function main() {
             case 'a':
                 await manageDesiredMembers();
                 break;
+            case 'm':
+                await runApiExample();
+                break
             default:
                 console.log("Unknown MainPage Command:");
                 break;
@@ -130,6 +139,7 @@ function displayMainMenu() {
     console.log("b: load all Bokuao blog");
     console.log("e: Export all blog image of single Member");
     console.log("a: Export all blog image of desired Members");
+    console.log("m: convert message files");
     console.log("================================================================================");
 }
 
@@ -151,17 +161,18 @@ async function exportSingleMemberImages() {
     let memberList = [];
     switch (userInput) {
         case 'h':
-            memberList = getJsonList(Hinatazaka46_BlogStatus_FilePath);
+            memberList = await getJsonList(Hinatazaka46_BlogStatus_FilePath);
             break;
         case 's':
-            memberList = getJsonList(Sakurazaka46_BlogStatus_FilePath);
+            memberList = await getJsonList(Sakurazaka46_BlogStatus_FilePath);
             break;
         case 'n':
-            memberList = getJsonList(Nogizaka46_BlogStatus_FilePath);
+            memberList = await getJsonList(Nogizaka46_BlogStatus_FilePath);
             break;
         case 'b':
-            memberList = getJsonList(Bokuao_BlogStatus_FilePath);
+            memberList = await getJsonList(Bokuao_BlogStatus_FilePath);
             break;
+
         default:
             console.log("Unknown Command.");
             return;
@@ -190,8 +201,8 @@ async function selectAndExportMemberImages(memberList) {
 async function manageDesiredMembers() {
     let desiredPageExit = false;
     while (!desiredPageExit) {
-        const fullMemberList = getFullMemberList();
-        const selectedDesiredMembers = loadDesiredMemberList();
+        const fullMemberList = await getFullMemberList();
+        const selectedDesiredMembers = await loadDesiredMemberList();
         const memberListView = createMemberListView(fullMemberList, selectedDesiredMembers);
 
         displayTable(memberListView);

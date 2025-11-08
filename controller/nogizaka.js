@@ -1,22 +1,21 @@
 // nogizaka.js
-import fs from 'fs';
 import {
     DateFormats,
     getHttpResponse,
-    getJsonList, Hinatazaka46_BlogStatus_FilePath,
+    getJsonList,
     IdolGroup,
     Nogizaka46_BlogStatus_FilePath,
     parseDateTime, saveBlogsToFile,
-    threadCount,
+    blogThread,
 } from '../global.js'; // adjust path to wherever your global.js is located
 // If using node-html-parser or similar to parse HTML:
-import { parse as parseHtml } from 'node-html-parser';
+import htmlParser from 'node-html-parser';
 
 ////////////////////////////////////////////////////////////////////////////////
 // Global data structure
 ////////////////////////////////////////////////////////////////////////////////
 
-let Nogizaka46_Blogs = {}; // Replaces static Dictionary<string, Blog> in C#
+
 
 // Mapping of generation -> list of member names
 // Use exactly as you have them in C# or store them in a separate config.
@@ -25,7 +24,7 @@ const Nogizaka46_Members = {
     '４期生': ['遠藤さくら', '賀喜遥香', '掛橋沙耶香', '金川紗耶', '北川悠理', '柴田柚菜', '清宮レイ', '田村真佑', '筒井あやめ', '早川聖来', '矢久保美緒'],
     '新4期生': ['黒見明香', '佐藤璃果', '林瑠奈', '松尾美佑', '弓木奈於'],
     '5期生': ['五百城茉央', '池田瑛紗', '一ノ瀬美空', '井上和', '岡本姫奈', '小川彩', '奥田いろは', '川﨑桜', '菅原咲月', '冨里奈央', '中西アルノ'],
-    '6期生リレー': ['愛宕心響', '大越ひなの', '小津玲奈', '海邉朱莉', '川端晃菜', '鈴木佑捺', '瀬戸口心月', '長嶋凛桜', '増田三莉音', '森平麗心', '矢田萌華']
+    '6期生': ['愛宕心響', '大越ひなの', '小津玲奈', '海邉朱莉', '川端晃菜', '鈴木佑捺', '瀬戸口心月', '長嶋凛桜', '増田三莉音', '森平麗心', '矢田萌華']
 };
 
 // This is equivalent to `private static readonly int blogPerThread = 128;`
@@ -72,7 +71,7 @@ async function getNogizakaBlogList(uri) {
 /**
  * Equivalent to: private static bool GetBlogsInfo(int threadId)
  */
-async function getBlogsInfo(threadId) {
+async function getBlogsInfo(threadId,Blogs) {
     // e.g. https://www.nogizaka46.com/s/n46/api/list/blog?rw=128&st=0&callback=res
     const uri = `https://www.nogizaka46.com/s/n46/api/list/blog?rw=${blogPerThread}&st=${threadId * blogPerThread}&callback=res`;
 
@@ -85,7 +84,7 @@ async function getBlogsInfo(threadId) {
     for (const blogData of blogList.data) {
         const start = Date.now();
         // parse the blogData.text as HTML
-        const htmlDocument = parseHtml(blogData.text);
+        const htmlDocument = htmlParser.parse(blogData.text);
 
         // Construct a Blog object
         const blog = {
@@ -102,8 +101,8 @@ async function getBlogsInfo(threadId) {
 
         // Replace "TryAdd" logic
         // If blog ID doesn't exist in Nogizaka46_Blogs, add it.
-        if (!(blog.ID in Nogizaka46_Blogs)) {
-            Nogizaka46_Blogs[blog.ID] = blog;
+        if (!(blog.ID in Blogs)) {
+            Blogs[blog.ID] = blog;
             const diff = (Date.now() - start) / 1000;
             console.log("\x1b[32m%s\x1b[0m", `Blog ID:[${blog.ID}][${blog.Name}]` + `Date:[${blog.DateTime}] ` + `ImgCount:[${blog.ImageList.length}]` + `Page:[${threadId}]` + `ProcessingTime:[${diff.toFixed(3)}s]`);
         } else {
@@ -120,24 +119,24 @@ async function getBlogsInfo(threadId) {
  */
 export async function Nogizaka46_Crawler() {
     // 1) Load existing blogs from file, put them into a dictionary
-    const existingMembers = getJsonList(Nogizaka46_BlogStatus_FilePath);
+    const existingMembers = await getJsonList(Nogizaka46_BlogStatus_FilePath);
 
     // Flatten out all their BlogList items into an object
-    Nogizaka46_Blogs = {};
+    let Blogs = {};
     for (const member of existingMembers) {
         for (const b of member.BlogList) {
-            Nogizaka46_Blogs[b.ID] = b;
+            Blogs[b.ID] = b;
         }
     }
 
-    const oldBlogsCount = Object.keys(Nogizaka46_Blogs).length;
-    console.log(`Nogizaka46_Blogs:${oldBlogsCount}`)
+    const oldBlogsCount = Object.keys(Blogs).length;
+    //console.log(`Existing Nogizaka46_Blogs count: ${oldBlogsCount}`);
 
     // 2) Loop from threadId=0 to threadId=threadCount-1
     //    In your code, you used: int threadNumber = Environment.ProcessorCount;
     //    We'll do the same with threadCount from global.js
-    for (let threadId = 0; threadId < threadCount; threadId++) {
-        const keepLoop = await getBlogsInfo(threadId);
+    for (let threadId = 0; threadId < blogThread; threadId++) {
+        const keepLoop = await getBlogsInfo(threadId,Blogs);
         if (!keepLoop) {
             break;
         }
@@ -145,20 +144,20 @@ export async function Nogizaka46_Crawler() {
 
     // 3) Sort all blogs by DateTime ascending
     //    Then convert back to a dictionary keyed by blog ID
-    const sortedEntries = Object.entries(Nogizaka46_Blogs).sort((a, b) => a[1].DateTime - b[1].DateTime);
+    const sortedEntries = Object.entries(Blogs).sort((a, b) => a[1].DateTime - b[1].DateTime);
     // Rebuild an object in sorted order
-    Nogizaka46_Blogs = {};
+    Blogs = {};
     for (const [k, v] of sortedEntries) {
-        Nogizaka46_Blogs[k] = v;
+        Blogs[k] = v;
     }
 
     // Compare the new count with the old
-    const newBlogsCount = Object.keys(Nogizaka46_Blogs).length;
+    const newBlogsCount = Object.keys(Blogs).length;
 
     // If there are new blogs, save them to file
     if (newBlogsCount > oldBlogsCount)
-        saveBlogsToFile(
-            Nogizaka46_Blogs,
+        await saveBlogsToFile(
+            Blogs,
             IdolGroup.Nogizaka46,
             Nogizaka46_BlogStatus_FilePath,
             Nogizaka46_Members
@@ -170,9 +169,9 @@ export async function Nogizaka46_Crawler() {
     // 5) Write them out to file
     // const jsonString = JSON.stringify(newNogizaka46Members, null, 2);
     // fs.writeFileSync(Nogizaka46_BlogStatus_FilePath, jsonString, 'utf-8');
-    const jsonString = JSON.stringify(Nogizaka46_Blogs, null, 2);
-    Nogizaka46_Blogs = {};
-    return jsonString;
+    //const jsonString = JSON.stringify(Nogizaka46_Blogs, null, 2);
+    //Nogizaka46_Blogs = {};
+    //return jsonString;
 }
 
 /**
@@ -182,9 +181,9 @@ export async function Nogizaka46_Crawler() {
  *    then if group.Key is found in Nogizaka46_Members dictionary,
  *    we do blog.Name = selectedKiMemberNames[index % selectedKiMemberNames.Count]."
  */
-export function getGroupedMembers() {
+export function getGroupedMembers(Blogs) {
     // Convert the Blogs object into an array, grouped by blog.Name
-    const allBlogs = Object.values(Nogizaka46_Blogs); // array of Blog
+    const allBlogs = Object.values(Blogs); // array of Blog
     // Group by blog.Name
     const groupedByName = {};
     for (const b of allBlogs) {

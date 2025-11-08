@@ -14,12 +14,11 @@ import {
     Hinatazaka46_HomePage,
     DateFormats,
     IdolGroup,
-    threadCount,
+    blogThread,
     getJson,
 } from '../global.js'; // <-- Adjust path to your global.js
 import pLimit from 'p-limit';
 // This object holds your blog entries, keyed by blog ID
-let Blogs = {};
 
 const Hinatazaka46_Members = {
     '五期生リレー': [
@@ -29,20 +28,19 @@ const Hinatazaka46_Members = {
     ]
 };
 
-
 /**
  * Equivalent to: public static void Hinatazaka46_Crawler()
  */
 export async function Hinatazaka46_Crawler() {
     // Load existing blogs from file
-    Blogs = loadExistingBlogs(Hinatazaka46_BlogStatus_FilePath);
+    const Blogs = await loadExistingBlogs(Hinatazaka46_BlogStatus_FilePath);
 
     const oldBlogsCount = Object.keys(Blogs).length;
-    console.log(`Hinatazaka46_Blogs:${oldBlogsCount}`)
+    //console.log(`Hinatazaka46_Blogs:${oldBlogsCount}`)
     // Create an array of tasks for each “thread ID” from 0..threadCount-1
     const tasks = [];
-    for (let i = 0; i < threadCount; i++) {
-        tasks.push(processPages(i, threadCount));
+    for (let i = 0; i < blogThread; i++) {
+        tasks.push(processPages(i, blogThread, Blogs));
     }
     // Run them all concurrently
     await Promise.all(tasks);
@@ -50,19 +48,18 @@ export async function Hinatazaka46_Crawler() {
     // Compare the new count with the old
     const newBlogsCount = Object.keys(Blogs).length;
 
-    if (newBlogsCount > oldBlogsCount) 
+    if (newBlogsCount > oldBlogsCount)
         // If there are new blogs, save them to file
-        saveBlogsToFile(Blogs, IdolGroup.Hinatazaka46, Hinatazaka46_BlogStatus_FilePath, Hinatazaka46_Members);
+        await saveBlogsToFile(Blogs, IdolGroup.Hinatazaka46, Hinatazaka46_BlogStatus_FilePath, Hinatazaka46_Members);
 
-    const result = JSON.stringify(Blogs, null, 2);
+    //const result = JSON.stringify(Blogs, null, 2);
     // Clear out the dictionary
-    Blogs = {};
-
-    return result;
+    //Blogs = {};
+    //return result;
 }
 
 export async function Hinatazaka46_History_Crawler() {
-    let history_photos_col = getJsonList(Hinatazaka46_History_FilePath);
+    let history_photos_col = await getJsonList(Hinatazaka46_History_FilePath);
     const indexs = history_photos_col.map(col => col.col_index);
     const max_col_index = Math.max(...indexs);
     for (let col_index = 1; col_index <= max_col_index + 5; col_index++) {
@@ -102,12 +99,10 @@ export async function Hinatazaka46_History_Crawler() {
     return history_photos_col;
 }
 
-
-
 /**
  * Equivalent to: private static void ProcessPages(int threadId, int threadCount)
  */
-async function processPages(threadId, threadCount) {
+async function processPages(threadId, threadCount, Blogs) {
     for (let currentPage = threadId; currentPage <= 1000; currentPage += threadCount) {
         try {
             //console.log(`threadId [${threadId}] Processing Page ${currentPage}`);
@@ -122,7 +117,7 @@ async function processPages(threadId, threadCount) {
                 const articleNodes = htmlDoc.querySelectorAll(".p-blog-group > .p-blog-article");
                 for (const element of articleNodes) {
                     // If processBlog returns false, we stop processing further on this page
-                    const shouldContinue = await processBlog(element, currentPage);
+                    const shouldContinue = await processBlog(element, currentPage, Blogs);
                     if (!shouldContinue) {
                         return;
                     }
@@ -141,7 +136,7 @@ async function processPages(threadId, threadCount) {
 /**
  * Equivalent to: private static bool ProcessBlog(HtmlNode element, int currentPage)
  */
-async function processBlog(element, currentPage) {
+async function processBlog(element, currentPage, Blogs) {
     const startTime = Date.now();
 
     // Construct the full blog path by looking for <a class="c-button-blog-detail">
@@ -220,7 +215,7 @@ async function processBlog(element, currentPage) {
             // If blog already known, skip
             console.log("\x1b[33m%s\x1b[0m", `Duplicate Blog Id ${blogID} but no content for Member ${blogMemberName} found on Page ${currentPage}`);
         }
-        console.log("\x1b[33m%s\x1b[0m", `Duplicate Blog Id ${blogID} for Member ${blogMemberName} found on Page ${currentPage}`);
+
         return false;
     }
 }
@@ -228,10 +223,10 @@ async function processBlog(element, currentPage) {
 async function loadContent() {
     // 2. Create a limiter instance. This will run a maximum of 10 promises at once.
     // Adjust this number based on your needs and the server's rate limits.
-    const limit = pLimit(threadCount);
+    const limit = pLimit(blogThread);
 
     try {
-        const Blogs = loadExistingBlogs(Hinatazaka46_BlogStatus_FilePath);
+        const Blogs = await loadExistingBlogs(Hinatazaka46_BlogStatus_FilePath);
         const promises = [];
 
         // 3. Loop through the blogs to create an array of tasks, but don't 'await' them yet.
@@ -243,7 +238,7 @@ async function loadContent() {
                     const url = `https://www.hinatazaka46.com/s/official/diary/detail/${key}?ima=0000&cd=member`;
                     try {
                         const htmlDoc = await getHtmlDocument(url);
-                        
+
                         if (htmlDoc) {
                             const blogInnerTextNode = htmlDoc.querySelector("div.c-blog-article__text");
                             // This safely modifies the original 'value' object from the 'Blogs' dictionary
@@ -259,14 +254,14 @@ async function loadContent() {
                 promises.push(task);
             }
         }
-        
+
         console.log(`Found ${promises.length} blogs without content. Starting concurrent fetch...`);
 
         // 4. Wait for all the limited promises to complete.
         await Promise.all(promises);
 
         console.log("All fetching tasks are complete.");
-        saveBlogsToFile(Blogs, IdolGroup.Hinatazaka46, Hinatazaka46_BlogStatus_FilePath, Hinatazaka46_Members);
+        await saveBlogsToFile(Blogs, IdolGroup.Hinatazaka46, Hinatazaka46_BlogStatus_FilePath, Hinatazaka46_Members);
 
     } catch (error) {
         console.error("A critical error occurred in loadContent:", error);

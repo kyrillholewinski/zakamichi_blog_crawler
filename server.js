@@ -4,7 +4,6 @@ import os from 'os';
 import {
     Hinatazaka46_BlogStatus_FilePath,
     Sakurazaka46_BlogStatus_FilePath,
-    Keyakizaka46_BlogStatus_FilePath,
     Nogizaka46_BlogStatus_FilePath,
     Hinatazaka46_History_FilePath,
     Bokuao_BlogStatus_FilePath,
@@ -46,15 +45,55 @@ async function crawlAll() {
 }
 
 // Helper to get every member from every group
-function getFullMemberList() {
+async function getFullMemberList() {
+    const Hinatazaka46_Blogs = await getJsonList(Hinatazaka46_BlogStatus_FilePath);
+    const Sakurazaka46_Blogs = await getJsonList(Sakurazaka46_BlogStatus_FilePath);
+    const Nogizaka46_Blogs = await getJsonList(Nogizaka46_BlogStatus_FilePath);
+    const Bokuao_Blogs = await getJsonList(Bokuao_BlogStatus_FilePath);
     return [
-        ...getJsonList(Hinatazaka46_BlogStatus_FilePath),
-        ...getJsonList(Sakurazaka46_BlogStatus_FilePath),
-        ...getJsonList(Nogizaka46_BlogStatus_FilePath),
-        ...getJsonList(Keyakizaka46_BlogStatus_FilePath),
-        ...getJsonList(Bokuao_BlogStatus_FilePath),
+        ...Hinatazaka46_Blogs,
+        ...Sakurazaka46_Blogs,
+        ...Nogizaka46_Blogs,
+        ...Bokuao_Blogs,
     ];
 }
+
+const POLLING_INTERVAL_MS = parseInt('900', 10) * 1000;
+
+// Function to process the blog data
+const processBlogData = (data, year, month) => {
+    const memberStats = {};
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const labels = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+    data.forEach(member => {
+        memberStats[member.Name] = Array(daysInMonth).fill(0);
+        member.BlogList.forEach(blog => {
+            const blogDate = new Date(blog.DateTime);
+            if (blogDate.getFullYear() === year && blogDate.getMonth() + 1 === month) {
+                const dayOfMonth = blogDate.getDate();
+                memberStats[member.Name][dayOfMonth - 1]++;
+            }
+        });
+    });
+
+    const datasets = Object.keys(memberStats).map(name => {
+        const color = `rgba(${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, ${Math.floor(Math.random() * 255)}, 0.7)`;
+        return {
+            label: name,
+            data: memberStats[name],
+            backgroundColor: color,
+            borderColor: color,
+            borderWidth: 1,
+            fill: false
+        };
+    });
+
+    return {
+        labels: labels.map(day => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`),
+        datasets: datasets
+    };
+};
 
 function getWebsite(body) {
     return `
@@ -82,14 +121,85 @@ function getWebsite(body) {
         `
 }
 
+app.get('/blogChart',async (req, res) => {
+    // Default to a specific month/year if not provided, e.g., November 2015 from your data
+    const year = parseInt(req.query.year, 10) || 2025;
+    const month = parseInt(req.query.month, 10) || 10;
+
+    const Sakurazaka46_Blogs = await getJsonList(Sakurazaka46_BlogStatus_FilePath);
+
+    const chartData = processBlogData(Sakurazaka46_Blogs, year, month);
+
+    const html = `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Keyakizaka46 Blog Stats</title>
+                    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                    <script src="https://cdn.tailwindcss.com"></script>
+                    <style>
+                        body {
+                            font-family: 'Inter', sans-serif;
+                        }
+                    </style>
+                </head>
+                <body class="bg-gray-100 text-gray-800">
+                    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+                        <div class="bg-white rounded-2xl shadow-lg p-6">
+                            <h1 class="text-2xl md:text-3xl font-bold text-center mb-2 text-purple-700">Idol Blog Posting Frequency</h1>
+                            <p class="text-center text-gray-500 mb-6">Blog posts per day for ${year}-${String(month).padStart(2, '0')}</p>
+                            <div class="chart-container" style="position: relative; height:60vh; width:100%">
+                                <canvas id="blogChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <script>
+                        const ctx = document.getElementById('blogChart').getContext('2d');
+                        const blogChart = new Chart(ctx, {
+                            type: 'line',
+                            data: ${JSON.stringify(chartData)},
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                scales: {
+                                    x: {
+                                        title: {
+                                            display: true,
+                                            text: 'Date'
+                                        }
+                                    },
+                                    y: {
+                                        title: {
+                                            display: true,
+                                            text: 'Number of Blog Posts'
+                                        },
+                                        beginAtZero: true,
+                                        ticks: {
+                                            stepSize: 1
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    </script>
+                </body>
+                </html>
+            `;
+
+    res.send(html);
+
+});
+
 app.get('/keyaki', async (_, res) => {
     await Keyakizaka46_Crawler();
     res.redirect('/')
 })
 
-app.get('/', (_, res) => {
-    const members = getFullMemberList();
-    const desiredNames = loadDesiredMemberList();
+app.get('/', async (_, res) => {
+    const members = await getFullMemberList();
+    const desiredNames = await loadDesiredMemberList();
 
     // group by `Group`
     const grouped = members.reduce((acc, m) => {
@@ -104,12 +214,20 @@ app.get('/', (_, res) => {
     const dates = Array.from({ length: 7 }, (_, i) =>
         new Date(Date.now() - i * 86400e3)
     );
-    const dateLinks = dates
+    const exportdateLinks = dates
         .map(d => {
             const ymd = formatYYYYMMDD(d);
             return `<a href="/export?date=${ymd}">${ymd}</a>`;
         })
         .join(' ');
+
+    const dateLinks = dates
+        .map(d => {
+            const ymd = formatYYYYMMDD(d);
+            return `<a href="/blogs?date=${ymd}">${ymd}</a>`;
+        })
+        .join(' ');
+
 
     // table headers & rows
     const headers = groupNames.map(g => `<th>${g}</th>`).join('');
@@ -144,6 +262,11 @@ app.get('/', (_, res) => {
                         <p>
                         <strong>Since:</strong>
                         <a href="/export">default (7 days ago)</a>
+                        ${exportdateLinks}
+                        </p>
+                        <p>
+                        <strong>Blogs:</strong>
+                        <a href="/blog">default</a>
                         ${dateLinks}
                         </p>
                         <p>
@@ -181,22 +304,19 @@ app.get('/export', async (req, res) => {
         const cutoffDate = member ? null : lastUpdate
 
         // 2) refresh all blogs
-        await crawlAll();
 
         // 3) pick members to export
-        const allMembers = getFullMemberList();
-        const desired = loadDesiredMemberList();
+        const allMembers = await getFullMemberList();
+        const desired = await loadDesiredMemberList();
 
         // if ?member=Name, only that one; otherwise all desired
         const memberBlogsToExport = member
             ? allMembers.filter(m => m.Name === member && m.Group === group)
             : allMembers.filter(m => desired.includes(m.Name));
 
-        const blogsToExport = blogId 
-        ? memberBlogsToExport.map(m => ({ Group: m.Group, Name: m.Name, BlogList: m.BlogList.filter(b => b.ID === blogId) })) 
-        : memberBlogsToExport
-
-        console.log(blogsToExport)
+        const blogsToExport = blogId
+            ? memberBlogsToExport.map(m => ({ Group: m.Group, Name: m.Name, BlogList: m.BlogList.filter(b => b.ID === blogId) }))
+            : memberBlogsToExport
 
         if (!blogsToExport.length) {
             return res.status(404).json({ error: 'No matching members found' });
@@ -204,7 +324,7 @@ app.get('/export', async (req, res) => {
 
         // 4) stream zip
         const archive = archiver('zip', { zlib: { level: 9 } });
-        res.attachment('exported_images.zip');
+        res.attachment('DCIM.zip');
         archive.pipe(res);
 
         // 5) for each member, append their images
@@ -221,7 +341,7 @@ app.get('/export', async (req, res) => {
         console.log('[EXPORT]', {
             ...req.query,
             fileCount: archiveEntries.flat().length,
-            fileSize: formatBytes(archiveEntries.flat().reduce((partialSum, a) => partialSum + a.data.length, 0)),
+            //fileSize: formatBytes(archiveEntries.flat().reduce((partialSum, a) => partialSum + a.data.length, 0)),
             cutoffDate: cutoffDate?.toLocaleString("zh-TW", { timeZone: 'ROC' })
         });
 
@@ -231,10 +351,88 @@ app.get('/export', async (req, res) => {
     }
 });
 
+
 // Member Blogs List
-app.get('/members/blogs', (req, res) => {
+app.get('/blogs', async (req, res) => {
+    const { date } = req.query;
+
+    const defaultDate = new Date(Date.now());
+    let lastUpdate = defaultDate;
+    if (date) {
+        const parsed = new Date(parseDateTime(date, 'yyyyMMdd'));
+        if (!isNaN(parsed)) lastUpdate = parsed;
+    }
+
+    console.log('Blogs on date:', lastUpdate.toISOString());
+
+    const targetYear = parseInt(lastUpdate.getFullYear(), 10);
+    const targetMonth = parseInt(lastUpdate.getMonth(), 10);
+    const targetDay = parseInt(lastUpdate.getDate(), 10);
+
+    console.log('Blogs on date:', { targetYear, targetMonth, targetDay });
+    const blogsOnDate = [];
+
+    const allMembers = await getFullMemberList();
+    // Iterate through each member and their blogs
+    allMembers.forEach(member => {
+        const memberBlogs = member.BlogList.filter(blog => {
+            const blogDate = new Date(blog.DateTime);
+            return blogDate.getFullYear() === targetYear &&
+                blogDate.getMonth() === targetMonth &&
+                blogDate.getDate() === targetDay;
+        });
+        // If the member has blogs on that day, add them to our results
+        if (memberBlogs.length > 0) {
+            console.log(`Found ${memberBlogs.length} blogs for ${member.Name} on ${date}`);
+            blogsOnDate.push(...memberBlogs);
+        }
+    });
+
+
+    const rows = blogsOnDate
+        .sort((a, b) => b.ID - a.ID)
+        .map(blog => `
+                        <tr>
+                            <td colspan="3">
+                                <a href="/members/blog?member=${blog.Name}&blogId=${blog.ID}">
+                                    ${blog.Title || "No title"}
+                                </a>
+                            </td>
+                            <td>${blog.Name}</td>
+                            <td>${new Date(blog.DateTime).toLocaleString("zh-TW", { timeZone: 'ROC' })}</td>
+                            <td>
+                                <a href="/export?member=${blog.Name}&blogId=${blog.ID}">
+                                    Download
+                                </a>
+                            </td>
+                        </tr>`
+        ).join('');
+
+    const htmlbody = `
+                    <a href="/">← Back</a>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th colspan="3">Blog Title</th>
+                                <th>Series</th>
+                                <th>Date & Time</th>
+                                <th>Download</th>                       
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rows}
+                        </tbody>
+                    </table>
+                    `
+
+    res.send(getWebsite(htmlbody));
+});
+
+// Member Blogs List
+app.get('/members/blogs', async (req, res) => {
     const { member, group } = req.query;
-    const selected = getFullMemberList().find(m => m.Name === member && m.Group === group);
+    const allMembers = await getFullMemberList();
+    const selected = allMembers.find(m => m.Name === member && m.Group === group);
     if (!selected) return res.send(getWebsite('<p>Member not found</p>'));
 
     const rows = selected.BlogList
@@ -278,9 +476,10 @@ app.get('/members/blogs', (req, res) => {
 });
 
 // Single Blog
-app.get('/members/blog', (req, res) => {
+app.get('/members/blog', async (req, res) => {
     const { member, group, blogId } = req.query;
-    const selected = getFullMemberList().find(m => m.Name === member && m.Group === group);
+        const allMembers = await getFullMemberList();
+    const selected = allMembers.find(m => m.Name === member);
     const blogIndex = selected?.BlogList.findIndex(b => b.ID == blogId);
     const blog = selected?.BlogList[blogIndex];
 
@@ -307,6 +506,8 @@ app.get('/members/blog', (req, res) => {
                     <h3>By ${blog.Name} | ${new Date(blog.DateTime).toLocaleString("zh-TW", { timeZone: 'ROC' })}</h3>
                     <h4>Images:</h4>
                     ${images}
+                    <h4>Content:</h4>
+                    ${blog.Content ?? ""}
                     `
     res.send(getWebsite(htmlbody));
 });
@@ -348,7 +549,7 @@ app.get('/history/refresh', async (req, res) => {
 
 app.get('/history/export', async (req, res) => {
     const { code } = req.query;
-    const history_photos_col = getJsonList(Hinatazaka46_History_FilePath);
+    const history_photos_col = await getJsonList(Hinatazaka46_History_FilePath);
 
     const toExport = code ? history_photos_col.filter(col => col.code == code) : history_photos_col;
     if (!toExport) {
@@ -371,12 +572,12 @@ app.get('/history/export', async (req, res) => {
     console.log('[EXPORT]', {
         ...req.query,
         fileCount: archiveEntries.length,
-        fileSize: formatBytes(archiveEntries.reduce((partialSum, a) => partialSum + a.data.length, 0)),
+        //fileSize: formatBytes(archiveEntries.reduce((partialSum, a) => partialSum + a.data.length, 0)),
     });
 });
 
-app.get('/history/list', (req, res) => {
-    const history_photos_col = getJsonList(Hinatazaka46_History_FilePath)
+app.get('/history/list', async (req, res) => {
+    const history_photos_col = await getJsonList(Hinatazaka46_History_FilePath)
     const rows = history_photos_col
         .sort((a, b) => b.col_index - a.col_index)
         .map(col => `
@@ -415,9 +616,9 @@ app.get('/history/list', (req, res) => {
     res.send(getWebsite(htmlbody));
 });
 
-app.get('/history/col', (req, res) => {
+app.get('/history/col', async (req, res) => {
     const { code } = req.query;
-    const history_photos_col = getJsonList(Hinatazaka46_History_FilePath)
+    const history_photos_col = await getJsonList(Hinatazaka46_History_FilePath)
     const col = history_photos_col.find(col => col.code === code);
 
     if (!col) return res.send(getWebsite('<a href="/">← Back</a><p>Blog not found</p>'));
@@ -441,6 +642,7 @@ app.get('/history/col', (req, res) => {
 });
 
 
+
 // Loop through each interface and its addresses
 app.listen(port, () => {
     console.log('Server will listen on these IP addresses:');
@@ -454,4 +656,45 @@ app.listen(port, () => {
     });
 });
 
+
+const isPollingActive = () => {
+    const hour = new Date().getHours(); // 0-23
+    return hour >= 6 && hour < 23;
+};
+
+
+const isBokuaoPollingActive = () => {
+    const hour = new Date().getHours(); // 0-23
+    return hour === 21;
+};
+
+async function pollAllGroups() {
+    if (!isPollingActive()) {
+        return;
+    }
+    console.log('--- 🔄 Polling all groups ---');
+    await Promise.all([
+        Hinatazaka46_Crawler(),
+        Sakurazaka46_Crawler(),
+        Nogizaka46_Crawler()
+    ]);
+
+    if (isBokuaoPollingActive()) {
+        await Bokuao_Crawler();
+    }
+    console.log('--- ✅ Polling completed ---');
+}
+
+async function main() {
+    console.log('--- 🚀 Starting blog crawler ---');
+    if (!POLLING_INTERVAL_MS) {
+        console.error('❌ ERROR: Missing or invalid POLLING_INTERVAL_SECONDS in .env');
+        process.exit(1);
+    }
+    await pollAllGroups();
+    setInterval(() => pollAllGroups(), POLLING_INTERVAL_MS);
+    console.log(`🕒 Polling scheduled to run every ${POLLING_INTERVAL_MS / 1000} seconds.`);
+}
+
+main();
 

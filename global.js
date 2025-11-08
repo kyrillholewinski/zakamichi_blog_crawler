@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import axios from 'axios';
-import { parse as parseHtml } from 'node-html-parser';
+import htmlParser from 'node-html-parser';
 import pLimit from 'p-limit';
 
 /**
@@ -18,7 +18,9 @@ export const jsonSerializerOptions = {
 };
 
 // Thread/concurrency count
-export const threadCount = os.cpus().length;
+export const blogThread = 1;
+
+export const processorThread = os.cpus().length;
 
 // ParallelOptions in .NET is replaced by a concurrency concept in Node.
 // We'll just store the numeric concurrency here:
@@ -58,7 +60,9 @@ export const Hinatazaka46_Interval = (Hinatazaka46_EndDay.getTime() - Hinatazaka
 export const ExportFilePath = path.join(PicturesFolderPath, 'Export');
 export const ForPhonePath = path.join(PicturesFolderPath, 'ForPhone');
 
+export const TARGET_DIRECTORY = path.join(ExportFilePath, '金村美玖');
 
+export const OUTPUT_JSON_FILE = path.join(ExportFilePath, 'messages_summary_miku.json');
 // Various date formats you used in .NET
 export const DateFormats = [
     'yyyy.M.d HH:mm',
@@ -93,7 +97,6 @@ export async function getHttpResponse(uri, httpMethod, jsonData = null, cookies 
         const cookieStr = cookies.map((c) => `${c.Name}=${c.Value}`).join('; ');
         headers.Cookie = cookieStr;
     }
-
     const axiosOptions = {
         url: uri,
         method: httpMethod,
@@ -118,13 +121,13 @@ export async function getHtmlDocument(urlAddress, cookies = null, blogId = null)
         const response = await getHttpResponse(urlAddress, 'GET', null, cookies);
         if (response.status === 200) {
             if (blogId) {
-                fs.writeFileSync(
+                await fs.promises.writeFile(
                     path.join(ExportFilePath, `${blogId}.html`),
                     response.data,
                     'utf-8'
                 );
             }
-            return parseHtml(response.data);
+            return htmlParser.parse(response.data);
         }
     } catch (err) {
         console.error(`Error fetching or parsing ${urlAddress}: ${err.message}`);
@@ -223,16 +226,17 @@ function formatDateTimeWithOffset(dt) {
  * getJsonList: read a JSON file that is an array of Member objects.
  * If not found or fails, return an empty array.
  */
-export function getJsonList(filePath) {
+export async function getJsonList(filePath) {
     try {
-        if (!fs.existsSync(filePath)) {
-            return [];
-        }
-        const data = fs.readFileSync(filePath, 'utf-8');
-        const members = JSON.parse(data);
-        return members || [];
+        // CORRECTED: Use the .promises property
+        await fs.promises.access(filePath);
+        // CORRECTED: Use the .promises property
+        const data = await fs.promises.readFile(filePath, 'utf-8');
+        return JSON.parse(data) || [];
     } catch (err) {
-        console.error(`Error reading members from ${filePath}:`, err);
+        if (err.code !== 'ENOENT') { // ENOENT means file not found, which is fine
+            console.error(`Error reading JSON from ${filePath}:`, err.message);
+        }
         return [];
     }
 }
@@ -254,7 +258,7 @@ function findFirstKeyword(str, keywords) {
  * This is basically your SaveBlogsToFile method, but we typically
  * do that in the crawler code. Provided if needed.
  */
-export function saveBlogsToFile(blogMap, groupName, blogStatusFilePath, mapped_Member = {}) {
+export async function saveBlogsToFile(blogMap, groupName, blogStatusFilePath, mapped_Member = {}) {
     // 1. Group blogs by author's name using a more concise reduce function.
     const groupedByName = Object.values(blogMap).reduce((acc, blog) => {
         (acc[blog.Name] = acc[blog.Name] || []).push(blog);
@@ -287,8 +291,6 @@ export function saveBlogsToFile(blogMap, groupName, blogStatusFilePath, mapped_M
 
                 const titleText = blog.Title.replaceAll(" ", "");
                 const contentText = blog.Content?.replaceAll(" ", "") ?? "";
-
-
                 const selectedKiMemberName =
                     findFirstKeyword(titleText, subMemberNames) ??
                     findFirstKeyword(contentText, subMemberNames) ??
@@ -309,7 +311,7 @@ export function saveBlogsToFile(blogMap, groupName, blogStatusFilePath, mapped_M
     const finalMembersArray = Array.from(newMembersMap.values());
 
     // 5. Write the result to the file system.
-    fs.writeFileSync(
+    await fs.promises.writeFile(
         blogStatusFilePath,
         JSON.stringify(finalMembersArray, null, 2),
         'utf-8'
@@ -320,8 +322,8 @@ export function saveBlogsToFile(blogMap, groupName, blogStatusFilePath, mapped_M
  * loadExistingBlogs:
  * read members from a file, flatten all their blogs into an object keyed by blog.ID
  */
-export function loadExistingBlogs(blogStatusFilePath) {
-    const members = getJsonList(blogStatusFilePath);
+export async function loadExistingBlogs(blogStatusFilePath) {
+    const members = await getJsonList(blogStatusFilePath);
     const dict = {};
     for (const m of members) {
         for (const b of m.BlogList) {
@@ -412,9 +414,25 @@ export async function getJson(url) {
 async function loadUrlData(url, retries = 3) {
     for (let i = 0; i < retries; i++) {
         try {
-            const response = await axios.get(url, { responseType: 'arraybuffer' });
-            if (response.status === 200) {
-                return response.data;
+            const { status, data } = await axios.get(url, { responseType: 'arraybuffer' });
+            if (status === 200) {
+                return data;
+            } else {
+                console.error(`Failed with status ${response.status}. Retry: ${i}`);
+            }
+        } catch (ex) {
+            console.error(`Connect to ${url} Fail: ${ex.message} Retry: ${i}`);
+        }
+    }
+    return null;
+}
+
+async function loadUrlStream(url, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const { status, data } = await axios.get(url, { responseType: 'stream' });
+            if (status === 200) {
+                return data;
             } else {
                 console.error(`Failed with status ${response.status}. Retry: ${i}`);
             }
@@ -467,15 +485,18 @@ async function saveImage(url, folderPath, date, blogID) {
             return true;
         }
 
-        const data = await loadUrlData(url);
+        const data = await loadUrlStream(url);
         if (!data) {
             console.error(`loadUrlData error for ${url}: 1`);
             return false;
         }
-
-        fs.writeFileSync(imgFileName, data);
         const t = date.getTime() / 1000;
-        fs.utimesSync(imgFileName, t, t);
+        const writer = data.pipe(fs.createWriteStream(imgFileName));
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+        await fs.promises.utimes(imgFileName, t, t);
         return true;
     } catch (ex) {
         console.error(`saveImage error for ${url}: `, ex.message);
@@ -548,7 +569,7 @@ export async function appendBlogImagesToArchive(member, lastUpdate = null) {
     if (blogList.length === 0) return [];
 
     // 2) Initialize p-limit and setup constants
-    const limit = pLimit(threadCount); // Limit to 5 concurrent downloads
+    const limit = pLimit(processorThread); // Limit to 5 concurrent downloads
     const archivePromises = [];
     const homePage = getHomePageByGroup(member.Group);
     const folderName = getFolderNameByGroup(member.Group);
@@ -576,7 +597,7 @@ export async function appendBlogImagesToArchive(member, lastUpdate = null) {
             // Create a limited task and push its promise to the central array
             const limitedTask = limit(async () => {
                 try {
-                    const data = await loadUrlData(url, 3);
+                    const data = await loadUrlStream(url, 3);
                     if (!data) throw new Error('No data');
                     return { data, name: archivePath, date: fileDate };
                 } catch (err) {
@@ -611,7 +632,7 @@ export async function appendBlogImagesToArchive(member, lastUpdate = null) {
 }
 
 export async function HistoryImagesToArchive(history_photos_col) {
-    const limit = pLimit(threadCount); // Limit to 5 concurrent promises
+    const limit = pLimit(processorThread); // Limit to 5 concurrent promises
     const archivePromises = [];
 
     for (const col of history_photos_col) {
@@ -635,7 +656,7 @@ export async function HistoryImagesToArchive(history_photos_col) {
             // Use limit() to throttle concurrency
             const limitedTask = limit(async () => {
                 try {
-                    const data = await loadUrlData(url, 3);
+                    const data = await loadUrlStream(url, 3);
                     if (!data) throw new Error('No data');
                     const archive = { data, name: archivePath, date: fileDate }
                     return archive;
@@ -667,7 +688,7 @@ export async function appendHistoryImagesToArchive(history_photos_col) {
             const archivePath = path.join(col_title, filename);
             const fileDate = new Date();
             try {
-                const data = await loadUrlData(url, 3);
+                const data = await loadUrlStream(url, 3);
                 if (!data) throw new Error('No data');
                 archiveList.push({ data, name: archivePath, date: fileDate });
             } catch (err) {
@@ -772,7 +793,7 @@ export function formatBytes(bytes, decimals = 2) {
 /**
  * Managing a "desired member" list
  */
-export function loadDesiredMemberList() {
+export async function loadDesiredMemberList() {
     try {
         if (!fs.existsSync(ExportFilePath)) {
             fs.mkdirSync(ExportFilePath, { recursive: true });
@@ -780,7 +801,7 @@ export function loadDesiredMemberList() {
         if (!fs.existsSync(Desired_MemberList_FilePath)) {
             return [];
         }
-        const data = fs.readFileSync(Desired_MemberList_FilePath, 'utf-8');
+        const data = await fs.promises.readFile(Desired_MemberList_FilePath, 'utf-8');
         return JSON.parse(data);
     } catch (err) {
         console.error(`Load_Desired_MemberList error: ${err.message}`);
@@ -836,3 +857,108 @@ export function removeDesiredMember(memberName) {
         return false;
     }
 }
+
+export async function ConvertMessage() {
+    console.log(`Starting process... Target directory: ${TARGET_DIRECTORY}`);
+
+    const summaryData = []; // Reverted to a simple array, one entry per file
+
+    try {
+        // 1. Get all filenames from the directory
+        const files = await fs.promises.readdir(TARGET_DIRECTORY);
+        console.log(`Found ${files.length} files.`);
+
+        // 2. Loop through each file to process and group them
+        for (const file of files) {
+            const filePath = path.join(TARGET_DIRECTORY, file);
+
+            // Parse the filename using the updated regular expression
+            // Example: 4_3_20200101000002.mp4
+            const match = file.match(/^(\d+)_(\d)_(\d{14})\..+$/);
+
+            if (!match) {
+                console.warn(`[SKIPPING] Filename does not match expected format: ${file}`);
+                continue;
+            }
+
+            // 3. Extract information from the filename
+            const [, sequenceStr, type, dateStr] = match;
+            const sequence = parseInt(sequenceStr, 10);
+            const typeName = MESSAGE_TYPE_MAP[type] || 'Unknown';
+
+            // Create a unique message object for this file
+            const message = {
+                sequence,
+                type,
+                typeName,
+                date: dateStr,
+                filePath: filePath,
+                content: null,
+            };
+
+            // 4. If the file is a text or link type, read its content
+            if (type === '0' || type === '4') {
+                message.content = await fs.promises.readFile(filePath, 'utf-8');
+            }
+
+            summaryData.push(message);
+
+            // 5. Update the file's timestamp
+            const dateObject = parseDate(dateStr);
+            if (dateObject) {
+                await fs.promises.utimes(filePath, dateObject, dateObject);
+                console.log(`[UPDATED] Set timestamp for ${file} to ${dateObject.toLocaleString()}`);
+            } else {
+                console.warn(`[WARNING] Invalid date format in ${file}. Timestamp not updated.`);
+            }
+        }
+
+        // 6. Sort the data by sequence number
+        summaryData.sort((a, b) => a.sequence - b.sequence);
+
+        // 7. Save the summarized data as a JSON file
+        await fs.promises.writeFile(OUTPUT_JSON_FILE, JSON.stringify(summaryData, null, 2));
+        console.log(`\n✅ Process complete. ${summaryData.length} records saved to ${OUTPUT_JSON_FILE}`);
+
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            console.error(`❌ ERROR: Directory not found: ${TARGET_DIRECTORY}`);
+            console.error('Please create a directory named "messages" in the same folder as the script.');
+        } else {
+            console.error('❌ An unexpected error occurred during processing:', error);
+        }
+    }
+}
+
+// Map of message type codes to their names
+const MESSAGE_TYPE_MAP = {
+    '0': 'Text',
+    '1': 'Image',
+    '2': 'Video',
+    '3': 'Voice',
+    '4': 'Link',
+};
+
+/**
+ * Parses a date string from a filename into a Date object.
+ * @param {string} dateString - Date string in YYYYMMDDHHmmss format.
+ * @returns {Date | null} The parsed Date object, or null if parsing fails.
+ */
+function parseDate(dateString) {
+    // YYYYMMDDHHmmss should be 14 characters
+    if (dateString.length !== 14) return null;
+
+    const year = parseInt(dateString.substring(0, 4), 10);
+    const month = parseInt(dateString.substring(4, 6), 10);
+    const day = parseInt(dateString.substring(6, 8), 10);
+    const hour = parseInt(dateString.substring(8, 10), 10);
+    const minute = parseInt(dateString.substring(10, 12), 10);
+    const second = parseInt(dateString.substring(12, 14), 10);
+
+    // Month is 0-indexed in JavaScript's Date object, so subtract 1.
+    const date = new Date(year, month - 1, day, hour, minute, second);
+
+    // Check if the created Date object is valid
+    return isNaN(date.getTime()) ? null : date;
+}
+

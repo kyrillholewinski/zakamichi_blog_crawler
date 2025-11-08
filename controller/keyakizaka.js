@@ -14,7 +14,7 @@ import {
     Keyakizaka46_HomePage,
     DateFormats,
     IdolGroup,
-    threadCount,
+    blogThread,
     getJson,
 } from '../global.js'; // <-- Adjust path to your global.js
 
@@ -27,13 +27,13 @@ let Blogs = {};
  */
 export async function Keyakizaka46_Crawler() {
     // Load existing blogs from file
-    Blogs = loadExistingBlogs(Keyakizaka46_BlogStatus_FilePath);
+    Blogs = await loadExistingBlogs(Keyakizaka46_BlogStatus_FilePath);
     const oldBlogsCount = Object.keys(Blogs).length;
 
     // Create an array of tasks for each “thread ID” from 0..threadCount-1
     const tasks = [];
-    for (let i = 0; i < threadCount; i++) {
-        tasks.push(processPages(i, threadCount));
+    for (let i = 0; i < blogThread; i++) {
+        tasks.push(processPages(i, blogThread));
     }
     // Run them all concurrently
     await Promise.all(tasks);
@@ -43,7 +43,7 @@ export async function Keyakizaka46_Crawler() {
 
     if (newBlogsCount > oldBlogsCount) {
         // If there are new blogs, save them to file
-        saveBlogsToFile(Blogs, IdolGroup.Keyakizaka46, Keyakizaka46_BlogStatus_FilePath);
+        await saveBlogsToFile(Blogs, IdolGroup.Keyakizaka46, Keyakizaka46_BlogStatus_FilePath);
     }
 
     const result = JSON.stringify(Blogs, null, 2);

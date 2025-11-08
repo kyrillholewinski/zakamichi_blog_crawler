@@ -11,7 +11,7 @@ import {
     Bokuao_HomePage,
     DateFormats,
     IdolGroup,
-    threadCount,
+    blogThread,
 } from '../global.js'; // Adjust path to your global.js
 
 
@@ -35,7 +35,7 @@ const DesiredBokuaoMembers = {
 };
 
 // We store blogs in a plain JS object keyed by blog ID
-let Blogs = {};
+
 
 // This replicates your C# array of Cookie objects. We'll pass it
 // as a "cookies" array to our getHtmlDocument (which in turn
@@ -63,35 +63,27 @@ const ignoreImgs = [
  */
 export async function Bokuao_Crawler() {
     // 1) Load existing blogs from file
-    Blogs = loadExistingBlogs(Bokuao_BlogStatus_FilePath);
+    const Blogs = await loadExistingBlogs(Bokuao_BlogStatus_FilePath);
     const oldBlogsCount = Object.keys(Blogs).length;
 
     // 2) Concurrency approach
     const tasks = [];
-    for (let i = 0; i < threadCount; i++) {
-        tasks.push(processPages(i, threadCount));
+    for (let i = 0; i < blogThread; i++) {
+        tasks.push(processPages(i, blogThread,Blogs));
     }
     await Promise.all(tasks);
 
     // 3) If new blogs were added, save to file
     const newBlogsCount = Object.keys(Blogs).length;
     if (newBlogsCount > oldBlogsCount) {
-        saveBlogsToFile(Blogs, IdolGroup.Bokuao, Bokuao_BlogStatus_FilePath);
-    }
-
-    const result = JSON.stringify(Blogs, null, 2);
-
-
-    // 4) Clear the dictionary
-    Blogs = {};
-
-    return result;
+        await saveBlogsToFile(Blogs, IdolGroup.Bokuao, Bokuao_BlogStatus_FilePath);
+    };
 }
 
 /**
  * Equivalent to: private static void ProcessPages(int threadId, int threadCount)
  */
-async function processPages(threadId, threadCount) {
+async function processPages(threadId, threadCount,Blogs) {
     // Start from page = threadId+1 (like your C# code)
     // and go up to 1000 in increments of threadCount
     for (let currentPage = threadId + 1; currentPage <= 1000; currentPage += threadCount) {
@@ -106,7 +98,7 @@ async function processPages(threadId, threadCount) {
             ) {
                 const nodeCollection = htmlDocument.querySelectorAll("li[data-delighter]");
                 for (const element of nodeCollection) {
-                    const shouldContinue = await processBlog(element, currentPage);
+                    const shouldContinue = await processBlog(element, currentPage,Blogs);
                     if (!shouldContinue) {
                         return;
                     }
@@ -125,7 +117,7 @@ async function processPages(threadId, threadCount) {
 /**
  * Equivalent to: private static bool ProcessBlog(HtmlNode element, int currentPage)
  */
-async function processBlog(element, currentPage) {
+async function processBlog(element, currentPage,Blogs) {
     const startTime = Date.now();
 
     // The first <a> in this element

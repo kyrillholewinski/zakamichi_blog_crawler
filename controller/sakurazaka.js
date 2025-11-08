@@ -14,7 +14,7 @@ import {
     Sakurazaka46_HomePage,
     DateFormats,
     IdolGroup,
-    threadCount
+    blogThread
 } from '../global.js'; // Adjust the relative path to your global.js
 
 
@@ -51,21 +51,21 @@ const sakurazaka46_Members = {
 };
 
 // A container for the blog entries. In C#, this was a Dictionary<string, Blog>.
-let Blogs = {};
+
 
 /**
  * Equivalent to: public static void Sakurazaka46_Crawler()
  */
 export async function Sakurazaka46_Crawler() {
     // Load existing blogs from JSON
-    Blogs = loadExistingBlogs(Sakurazaka46_BlogStatus_FilePath);
+    const Blogs = await loadExistingBlogs(Sakurazaka46_BlogStatus_FilePath);
     const oldBlogsCount = Object.keys(Blogs).length;
-    
+
     // Create an array of "thread IDs" from 0..(threadCount-1).
     // Run them all in parallel with Promise.all
     const tasks = [];
-    for (let i = 0; i < threadCount; i++) {
-        tasks.push(processPages(i, threadCount));
+    for (let i = 0; i < blogThread; i++) {
+        tasks.push(processPages(i, blogThread, Blogs));
     }
     await Promise.all(tasks);
 
@@ -74,33 +74,25 @@ export async function Sakurazaka46_Crawler() {
 
     // If there are new blogs, save them
     if (newBlogsCount > oldBlogsCount)
-
-        saveBlogsToFile(
+        await saveBlogsToFile(
             Blogs,
             IdolGroup.Sakurazaka46, // "Sakurazaka46"
             Sakurazaka46_BlogStatus_FilePath,
             sakurazaka46_Members
         );
-
-
-    const result = JSON.stringify(Blogs, null, 2);
-
-    // Clear out the dictionary
-    Blogs = {};
-
-    return result;
+    //const result = JSON.stringify(Blogs, null, 2);
 }
 
 /**
  * Equivalent to: private static void ProcessPages(int threadId, int threadCount)
  * Loop through pages from threadId to 1000 in steps of threadCount
  */
-async function processPages(threadId, threadCount) {
+async function processPages(threadId, threadCount, Blogs) {
+    //console.log(`Thread ID [${threadId}] started processing.`);
     for (let currentPage = threadId; currentPage <= 1000; currentPage += threadCount) {
         try {
             //console.log(`threadId [${threadId}] Processing Page ${currentPage}`);
             const url = `${Sakurazaka46_HomePage}/s/s46/diary/blog/list?page=${currentPage}`;
-
             const htmlDoc = await getHtmlDocument(url);
             if (htmlDoc) {
                 // First, gather all <li class="box"> (in the broad sense of “contains box class”)
@@ -122,8 +114,9 @@ async function processPages(threadId, threadCount) {
 
                 for (const element of exactLiBox) {
                     // If processBlog returns false, stop reading more from this page
-                    const shouldContinue = await processBlog(element, currentPage);
+                    const shouldContinue = await processBlog(element, currentPage,Blogs);
                     if (!shouldContinue) {
+                        //console.log(`Stopping further processing on Page ${currentPage}`);
                         return;
                     }
                 }
@@ -136,18 +129,19 @@ async function processPages(threadId, threadCount) {
             break;
         }
     }
+    //console.log(`Thread ID [${threadId}] completed processing.`);
 }
 
 /**
  * Equivalent to: private static bool ProcessBlog(HtmlNode element, int currentPage)
  */
-async function processBlog(element, currentPage) {
+async function processBlog(element, currentPage,Blogs) {
     const startTime = Date.now();
 
     // The blog URL is from the first <a> child
     const aTag = element.querySelector("a");
     if (!aTag || !aTag.getAttribute("href")) {
-        return true; // skip if no link is available
+        return false; // skip if no link is available
     }
 
     const hrefValue = aTag.getAttribute("href");
@@ -209,21 +203,14 @@ async function processBlog(element, currentPage) {
             return false;
         }
     } else {
-        if (!Blogs[blogID].Content) {
-            // The blog text area to find images
-            const article = blogDoc.querySelector("div.box-article");
-            Blogs[blogID].Content = article.innerHTML;
-            // If blog already known, skip
-            console.log("\x1b[33m%s\x1b[0m", `Duplicate Blog Id ${blogID} for Member ${blogMemberName} found on Page ${currentPage}`);
-        }
         // Yellow text
-        //console.log("\x1b[33m%s\x1b[0m",`Duplicate Blog Id ${blogID} for Member ${blogMemberName} found on Page ${currentPage}`);
-        return true;
+        //console.log("\x1b[33m%s\x1b[0m", `Duplicate Blog Id ${blogID} for Member ${blogMemberName} found on Page ${currentPage}`);
+        return false;
     }
 }
 
 export async function Sakurazaka46_History_Crawler() {
-    let history_photos_col = getJsonList(Sakurazaka46_History_FilePath) ?? [];
+    let history_photos_col = await getJsonList(Sakurazaka46_History_FilePath) ?? [];
     const indexs = history_photos_col.map(col => col.col_index);
     const max_col_index = Math.max(...indexs, 30);
     for (let col_index = 27; col_index <= max_col_index; col_index++) {
@@ -239,7 +226,6 @@ export async function Sakurazaka46_History_Crawler() {
                 htmlDoc.innerHTML,
                 'utf-8'
             );
-            console.log(url)
             if (htmlDoc) {
                 const content = htmlDoc.querySelector('div.sakura-history-detail-list')
                 const header = htmlDoc.querySelector('div.headarea')

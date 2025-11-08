@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Image Sequence Loader (Parallel)</title>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 1rem;
+        }
+
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .image-item img {
+            width: 100%;
+            height: auto;
+            border-radius: 0.5rem;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ccc;
+            border-top-color: #333;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="text-2xl font-bold text-gray-800">Image Sequence Loader (Parallel)</h1>
+        <div id="statusMessage" class="message text-gray-600">
+            <div class="loading">
+                <div class="spinner"></div>
+                <span>Preparing to scan...</span>
+            </div>
+        </div>
+        <div id="imageGridContainer" class="image-grid"></div>
+    </div>
+
+    <script>
+        const imageGridContainer = document.getElementById('imageGridContainer');
+        const statusMessage = document.getElementById('statusMessage');
+
+        const urlFixedPart1 = 'https://img.lemino.docomo.ne.jp/cms/a13b';
+        const urlFixedPart2 = '/a13b';
+        const urlSuffixes = ['_h1.jpg', '_h2.jpg', '_h3.jpg', '_w1.jpg', '_w2.jpg', '_w3.jpg'];
+
+        let foundImageUrls = [];
+
+        function hexToInt(hexStr) {
+            return parseInt(hexStr, 16);
+        }
+
+        function intToHex(intVal) {
+            return intVal.toString(16);
+        }
+
+        function constructImageUrl(changingHex, suffix) {
+            return `${urlFixedPart1}${changingHex}${urlFixedPart2}${changingHex}${suffix}`;
+        }
+
+        function checkImageExists(url) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve({ exists: true, url });
+                img.onerror = () => resolve({ exists: false, url });
+                img.src = url;
+            });
+        }
+
+        function renderImages() {
+            imageGridContainer.innerHTML = '';
+
+            if (foundImageUrls.length === 0) {
+                imageGridContainer.innerHTML = '<p class="text-gray-500">No images found in the sequence.</p>';
+                return;
+            }
+
+            foundImageUrls.forEach((url, index) => {
+                const div = document.createElement('div');
+                div.className = 'image-item';
+                div.innerHTML = `
+                    <img src="${url}" alt="Image ${index + 1}">
+                    <p>Image ${index + 1}</p>
+                    <p class="text-xs text-gray-400">${url.slice(-20)}</p>
+                `;
+                imageGridContainer.appendChild(div);
+            });
+        }
+
+        async function loadAllImagesParallel() {
+            const startHex = 'c69';
+            const hexRangeLength = 300;
+            const hexRange = Array.from({ length: hexRangeLength }, (_, i) =>
+                intToHex(hexToInt(startHex) + i)
+            );
+
+            let totalChecked = 0;
+
+            const checkHexGroup = async (hex) => {
+                const suffixChecks = urlSuffixes.map(suffix => {
+                    const url = constructImageUrl(hex, suffix);
+                    return checkImageExists(url);
+                });
+
+                const results = await Promise.all(suffixChecks);
+                const found = results.filter(r => r.exists);
+                totalChecked += urlSuffixes.length;
+
+                statusMessage.innerHTML = `
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <span>Checked hex ${hex} → Found ${found.length} images (Total Checked: ${totalChecked})</span>
+                    </div>
+                `;
+
+                return found.map(r => r.url);
+            };
+
+            const allHexChecks = await Promise.all(hexRange.map(checkHexGroup));
+            foundImageUrls = allHexChecks.flat();
+
+            renderImages();
+
+            if (foundImageUrls.length > 0) {
+                statusMessage.innerHTML = `<p class="text-green-600 font-semibold">Found ${foundImageUrls.length} images. Completed scan.</p>`;
+            } else {
+                statusMessage.innerHTML = `<p class="text-red-600 font-semibold">No images found in range starting from ${startHex}.</p>`;
+            }
+        }
+
+        window.onload = loadAllImagesParallel;
+    </script>
+</body>
+
+</html>

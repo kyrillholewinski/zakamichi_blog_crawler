@@ -14,14 +14,14 @@ import {
     removeDesiredMember,
     parseDateTime,
     ConvertMessage,
+    ensureDirectoryExists,
 } from './global.js';
 
 // If you keep your "controller" modules in a folder "controller", import them:
-import { Hinatazaka46_Crawler } from './controller/hinatazaka.js';
-import { Sakurazaka46_Crawler } from './controller/sakurazaka.js';
-import { Nogizaka46_Crawler } from './controller/nogizaka.js';
-import { Bokuao_Crawler } from './controller/bokuao.js';
-import { runApiExample } from './controller/message.js';
+import { Hinatazaka46_Blog_Crawler } from './controller/hinatazaka.js';
+import { Sakurazaka46_Blog_Crawler } from './controller/sakurazaka.js';
+import { Nogizaka46_Blog_Crawler } from './controller/nogizaka.js';
+import { Bokuao_Blog_Crawler } from './controller/bokuao.js';
 
 // Create the prompt instance
 const prompt = promptSync({ sigint: true });
@@ -90,12 +90,11 @@ async function getFullMemberList() {
 
 async function main() {
     // Make sure directories exist if needed
-    [Hinatazaka46_BlogStatus_FilePath, Sakurazaka46_BlogStatus_FilePath, Nogizaka46_BlogStatus_FilePath, Bokuao_BlogStatus_FilePath].forEach(filePath => {
-        const dir = filePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-    });
+    [Hinatazaka46_BlogStatus_FilePath, Sakurazaka46_BlogStatus_FilePath, Nogizaka46_BlogStatus_FilePath, Bokuao_BlogStatus_FilePath].
+        forEach(async (filePath) => {
+            const dir = filePath.replace(/\\/g, '/').split('/').slice(0, -1).join('/');
+            await ensureDirectoryExists(dir)
+        });
 
     let exit = false;
     while (!exit) {
@@ -103,16 +102,16 @@ async function main() {
         const userInput = getUserInput();
         switch (userInput) {
             case 'h':
-                await Hinatazaka46_Crawler();
+                await Hinatazaka46_Blog_Crawler();
                 break;
             case 's':
-                await Sakurazaka46_Crawler();
+                await Sakurazaka46_Blog_Crawler();
                 break;
             case 'n':
-                await Nogizaka46_Crawler();
+                await Nogizaka46_Blog_Crawler();
                 break;
             case 'b':
-                await Bokuao_Crawler();
+                await Bokuao_Blog_Crawler();
                 break;
             case 'e':
                 await exportSingleMemberImages();
@@ -121,7 +120,6 @@ async function main() {
                 await manageDesiredMembers();
                 break;
             case 'm':
-                await runApiExample();
                 break
             default:
                 console.log("Unknown MainPage Command:");
@@ -211,13 +209,13 @@ async function manageDesiredMembers() {
         const userInput = getUserInput();
         switch (userInput) {
             case 'a':
-                addDesiredMemberHandler(fullMemberList);
+                await addDesiredMemberHandler(fullMemberList);
                 break;
             case 'r':
-                removeDesiredMemberHandler(fullMemberList);
+                await removeDesiredMemberHandler(fullMemberList);
                 break;
             case 'e':
-                exportDesiredMembers(fullMemberList, selectedDesiredMembers);
+                await exportDesiredMembers(fullMemberList, selectedDesiredMembers);
                 break;
             case 'd':
                 await exportDesiredMembersBeforeDate(fullMemberList, selectedDesiredMembers);
@@ -279,39 +277,39 @@ function displayDesiredMemberMenu() {
     console.log("================================================================================");
 }
 
-function addDesiredMemberHandler(fullMemberList) {
+async function addDesiredMemberHandler(fullMemberList) {
     console.log("Select Member to Add:");
     const line = prompt("> ");
     if (!line) return;
     const num = parseInt(line, 10);
     if (num > 0 && num <= fullMemberList.length) {
         const selectedMember = fullMemberList[num - 1];
-        const res = addDesiredMember(selectedMember.Name);
+        const res = await addDesiredMember(selectedMember.Name);
         console.log(`Add ${selectedMember.Name} Result: ${res ? "Success" : "Fail"}`);
     } else {
         console.log("Unknown Command.");
     }
 }
 
-function removeDesiredMemberHandler(fullMemberList) {
+async function removeDesiredMemberHandler(fullMemberList) {
     console.log("Select Member to Remove:");
     const line = prompt("> ");
     if (!line) return;
     const num = parseInt(line, 10);
     if (num > 0 && num <= fullMemberList.length) {
         const selectedMember = fullMemberList[num - 1];
-        const res = removeDesiredMember(selectedMember.Name);
+        const res = await removeDesiredMember(selectedMember.Name);
         console.log(`Remove ${selectedMember.Name} Result: ${res ? "Success" : "Fail"}`);
     } else {
         console.log("Unknown Command.");
     }
 }
 
-function exportDesiredMembers(fullMemberList, selectedDesiredMembers) {
+async function exportDesiredMembers(fullMemberList, selectedDesiredMembers) {
     // "Parallel" in Node is typically Promise.all. We'll do it synchronously for clarity:
     // If you want concurrency, you can do a concurrency-limited approach with p-limit, etc.
     const membersToExport = fullMemberList.filter(m => selectedDesiredMembers.includes(m.Name));
-    Promise.all(membersToExport.map(m => exportSingleMemberBlogImages(m)))
+    await Promise.all(membersToExport.map(m => exportSingleMemberBlogImages(m)))
         .then(() => console.log("Export of desired members complete."));
 }
 

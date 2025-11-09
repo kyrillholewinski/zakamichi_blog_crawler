@@ -6,17 +6,6 @@ import axios from 'axios';
 import htmlParser from 'node-html-parser';
 import pLimit from 'p-limit';
 
-/**
- * Replace these constants with your own paths and configuration
- * as needed. They mirror your .NET code.
- */
-
-// JSON "options"
-export const jsonSerializerOptions = {
-    // Node doesn't have a direct counterpart to .NET's JavaScriptEncoder,
-    // but we can do pretty-print with JSON.stringify(value, null, 2).
-};
-
 // Thread/concurrency count
 export const blogThread = 1;
 
@@ -32,17 +21,28 @@ export const Hinatazaka46_HomePage = 'https://hinatazaka46.com';
 export const Nogizaka46_HomePage = 'https://nogizaka46.com';
 export const Bokuao_HomePage = 'https://bokuao.com';
 
+// An enumeration for idol groups
+export const IdolGroup = Object.freeze({
+    Nogizaka46: 'Nogizaka46',
+    Sakurazaka46: 'Sakurazaka46',
+    Hinatazaka46: 'Hinatazaka46',
+    Keyakizaka46: 'Keyakizaka46',
+    Bokuao: 'Bokuao',
+});
+
+
 // Folder paths, mirroring your .NET code
-export const PicturesFolderPath = './';
+export const BootPath = './';
 export const BlogStatus_FilePath = 'BlogStatus.JSON';
 export const History_FilePath = 'history.json';
 export const Desired_MemberList_FilePath = 'Desired_Member_List.JSON';
-
-export const Hinatazaka46_Images_FilePath = path.join(PicturesFolderPath, 'Hinatazaka46_Images');
-export const Sakurazaka46_Images_FilePath = path.join(PicturesFolderPath, 'Sakurazaka46_Images');
-export const Nogizaka46_Images_FilePath = path.join(PicturesFolderPath, 'Nogizaka46_Images');
-export const Keyakizaka46_Images_FilePath = path.join(PicturesFolderPath, 'Keyakizaka46_Images');
-export const Bokuao_Images_FilePath = path.join(PicturesFolderPath, 'Bokuao_Images');
+export const Record = 'Record'
+export const Hinatazaka46_Images_FilePath = path.join(BootPath, Record, IdolGroup.Hinatazaka46);
+export const Sakurazaka46_Images_FilePath = path.join(BootPath, Record, IdolGroup.Sakurazaka46);
+export const Nogizaka46_Images_FilePath = path.join(BootPath, Record, IdolGroup.Nogizaka46);
+export const Keyakizaka46_Images_FilePath = path.join(BootPath, Record, IdolGroup.Keyakizaka46);
+export const Bokuao_Images_FilePath = path.join(BootPath, Record, IdolGroup.Bokuao);
+export const BlogContent = 'BlogContent'
 
 export const Hinatazaka46_BlogStatus_FilePath = path.join(Hinatazaka46_Images_FilePath, BlogStatus_FilePath);
 export const Hinatazaka46_History_FilePath = path.join(Hinatazaka46_Images_FilePath, History_FilePath);
@@ -51,14 +51,15 @@ export const Sakurazaka46_History_FilePath = path.join(Sakurazaka46_Images_FileP
 export const Nogizaka46_BlogStatus_FilePath = path.join(Nogizaka46_Images_FilePath, BlogStatus_FilePath);
 export const Keyakizaka46_BlogStatus_FilePath = path.join(Keyakizaka46_Images_FilePath, BlogStatus_FilePath);
 export const Bokuao_BlogStatus_FilePath = path.join(Bokuao_Images_FilePath, BlogStatus_FilePath);
+
 export const Hinatazaka46_StartDay = new Date(2019, 1, 11)
 export const Hinatazaka46_EndDay = new Date(2025, 4, 27)
 export const Hinatazaka46_StartIndex = 1
 export const Hinatazaka46_EndIndex = 59
 export const Hinatazaka46_Interval = (Hinatazaka46_EndDay.getTime() - Hinatazaka46_StartDay.getTime()) / (Hinatazaka46_EndIndex - Hinatazaka46_StartIndex)
 
-export const ExportFilePath = path.join(PicturesFolderPath, 'Export');
-export const ForPhonePath = path.join(PicturesFolderPath, 'ForPhone');
+export const ExportFilePath = path.join(BootPath, 'Export');
+export const ForPhonePath = path.join(BootPath, 'ForPhone');
 
 export const TARGET_DIRECTORY = path.join(ExportFilePath, '金村美玖');
 
@@ -73,14 +74,6 @@ export const DateFormats = [
     'yyyy.Mdd',
 ];
 
-// An enumeration for idol groups
-export const IdolGroup = Object.freeze({
-    Nogizaka46: 'Nogizaka46',
-    Sakurazaka46: 'Sakurazaka46',
-    Hinatazaka46: 'Hinatazaka46',
-    Keyakizaka46: 'Keyakizaka46',
-    Bokuao: 'Bokuao',
-});
 
 /**
  * HTTP request function, replicating GetHttpResponse in .NET
@@ -118,16 +111,16 @@ export async function getHttpResponse(uri, httpMethod, jsonData = null, cookies 
  */
 export async function getHtmlDocument(urlAddress, cookies = null, blogId = null) {
     try {
-        const response = await getHttpResponse(urlAddress, 'GET', null, cookies);
-        if (response.status === 200) {
+        const { status, data } = await getHttpResponse(urlAddress, 'GET', null, cookies);
+        if (status === 200) {
             if (blogId) {
                 await fs.promises.writeFile(
                     path.join(ExportFilePath, `${blogId}.html`),
-                    response.data,
+                    data,
                     'utf-8'
                 );
             }
-            return htmlParser.parse(response.data);
+            return htmlParser.parse(data);
         }
     } catch (err) {
         console.error(`Error fetching or parsing ${urlAddress}: ${err.message}`);
@@ -251,6 +244,44 @@ function findFirstKeyword(str, keywords) {
         return first;
     }, { keyword: null, index: -1 }).keyword;
 }
+
+export async function ProcessAllBlogContents(blogStatusFilePath, blogContentFilePath, groupName, members) {
+    console.log("Process All BlogContents");
+    const Blogs = await loadExistingBlogs(blogStatusFilePath);
+    const oldBlogsCount = Object.keys(Blogs).length;
+    await fs.promises.mkdir(blogContentFilePath)
+    console.log(oldBlogsCount);
+    await Promise.all(Object.values(Blogs).map(async (blog) => {
+        if (blog.Content) {
+            const blogContentPath = path.join(blogContentFilePath, `${blog.ID}.html`)
+            await fs.promises.writeFile(blogContentPath, blog.Content, 'utf-8')
+            delete blog.Content
+        }
+    }))
+    await saveBlogsToFile(Blogs, groupName, blogStatusFilePath, members);
+}
+
+export async function saveBlogHtmlContent(blogId, groupName, content) {
+    const contentFolderPath = path.join(BootPath, BlogContent, groupName);
+    await ensureDirectoryExists(contentFolderPath)
+    const htmlContentFilePath = path.join(contentFolderPath, `${blogId}.html`);
+    try {
+        await fs.promises.access(htmlContentFilePath);
+        console.log(`[CACHE] existing file: ${path.basename(htmlContentFilePath)}`);
+        return true;
+    } catch {
+        await fs.promises.writeFile(htmlContentFilePath, content);
+    }
+}
+
+export const ensureDirectoryExists = async (dirPath) => {
+    try {
+        await fs.promises.access(dirPath);
+    } catch {
+        console.log(`📁 Creating directory: ${dirPath}`);
+        await fs.promises.mkdir(dirPath, { recursive: true });
+    }
+};
 
 /**
  * Save an object mapping { blogID -> Blog } or an array of Members
@@ -392,10 +423,10 @@ function getFolderNameByGroup(group) {
 
 export async function getJson(url) {
     try {
-        const response = await getHttpResponse(url, 'GET'); // from global.js
-        if (response.status === 200) {
+        const { status, data } = await getHttpResponse(url, 'GET'); // from global.js
+        if (status === 200) {
             // "responseString" is the response body
-            const responseString = response.data;
+            const responseString = data;
             if (responseString) {
                 return responseString;
             }
@@ -405,26 +436,6 @@ export async function getJson(url) {
     }
     // Return empty if anything fails
     return null
-}
-
-/**
- * Attempt to download an image from a URL (up to `retries` times).
- * @return {Buffer|null} Array buffer on success, or null on failure
- */
-async function loadUrlData(url, retries = 3) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            const { status, data } = await axios.get(url, { responseType: 'arraybuffer' });
-            if (status === 200) {
-                return data;
-            } else {
-                console.error(`Failed with status ${response.status}. Retry: ${i}`);
-            }
-        } catch (ex) {
-            console.error(`Connect to ${url} Fail: ${ex.message} Retry: ${i}`);
-        }
-    }
-    return null;
 }
 
 async function loadUrlStream(url, retries = 3) {
@@ -478,26 +489,25 @@ async function saveImage(url, folderPath, date, blogID) {
         const base = path.basename(url, ext);
         const fileName = sanitizeFileName(base, ext, blogID);
         const imgFileName = path.join(folderPath, fileName)
-
-        if (fs.existsSync(imgFileName)) {
-            const t = date.getTime() / 1000;
-            fs.utimesSync(imgFileName, t, t);
+        const t = date.getTime() / 1000;
+        try {
+            await fs.promises.access(imgFileName)
+            await fs.promises.utimes(imgFileName, t, t);
+            return true;
+        } catch {
+            const data = await loadUrlStream(url, 3);
+            if (!data) {
+                console.error(`loadUrlData error for ${url}: 1`);
+                return false;
+            }
+            const writer = data.pipe(fs.createWriteStream(imgFileName));
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+            await fs.promises.utimes(imgFileName, t, t);
             return true;
         }
-
-        const data = await loadUrlStream(url);
-        if (!data) {
-            console.error(`loadUrlData error for ${url}: 1`);
-            return false;
-        }
-        const t = date.getTime() / 1000;
-        const writer = data.pipe(fs.createWriteStream(imgFileName));
-        await new Promise((resolve, reject) => {
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-        await fs.promises.utimes(imgFileName, t, t);
-        return true;
     } catch (ex) {
         console.error(`saveImage error for ${url}: `, ex.message);
         return false;
@@ -528,9 +538,7 @@ export async function exportSingleMemberBlogImages(
     const folderName = getFolderNameByGroup(member.Group);
     const imgFolderPath = path.join(exportFolder, folderName, member.Name);
 
-    if (!fs.existsSync(imgFolderPath)) {
-        fs.mkdirSync(imgFolderPath, { recursive: true });
-    }
+    await ensureDirectoryExists(imgFolderPath);
 
     // Process each blog in parallel
     await Promise.all(
@@ -739,89 +747,27 @@ export function formatBytes(bytes, decimals = 2) {
 
     return `${value} ${sizeUnits[i]}`;
 }
-/**
- * saveImage: a function to download an image by URL, store it to disk,
- * and set file times.
- */
-// export async function saveImage(imgFileUrl, imgFilePath, dateTime, id) {
-//   const extension = path.extname(imgFileUrl).toLowerCase();
-//   if (!sourceExtensions.includes(extension)) {
-//     return false;
-//   }
-
-//   let fileName = path.basename(imgFileUrl, extension);
-//   if (!fileName) fileName = '';
-
-//   const fileExamples = [
-//     '0000', '0001', '0002', '0003', '0004', '0005', '0006', '0007', '0008', '0009'
-//   ];
-//   if (fileExamples.includes(fileName)) {
-//     fileName = `${id}_${fileName}`;
-//   } else if (fileName.length > 52) {
-//     fileName = fileName.substring(0, 52);
-//   }
-
-//   const imgFileName = path.join(imgFilePath, fileName + extension);
-
-//   // If file already exists, just update times
-//   if (fs.existsSync(imgFileName)) {
-//     const t = dateTime.getTime() / 1000;
-//     fs.utimesSync(imgFileName, t, t);
-//     return true;
-//   }
-
-//   for (let i = 0; i < 3; i++) {
-//     try {
-//       const response = await axios.get(imgFileUrl, { responseType: 'arraybuffer' });
-//       if (response.status !== 200) {
-//         console.error(
-//           `Connect to ${imgFileUrl} failed with status ${response.status}. Retry: ${i}`
-//         );
-//         continue;
-//       }
-//       fs.writeFileSync(imgFileName, response.data);
-//       const t = dateTime.getTime() / 1000;
-//       fs.utimesSync(imgFileName, t, t);
-//       return true;
-//     } catch (ex) {
-//       console.error(`Connect to ${imgFileUrl} Fail: ${ex.message} Retry: ${i}`);
-//     }
-//   }
-//   return false;
-// }
 
 /**
  * Managing a "desired member" list
  */
 export async function loadDesiredMemberList() {
     try {
-        if (!fs.existsSync(ExportFilePath)) {
-            fs.mkdirSync(ExportFilePath, { recursive: true });
-        }
-        if (!fs.existsSync(Desired_MemberList_FilePath)) {
-            return [];
-        }
-        const data = await fs.promises.readFile(Desired_MemberList_FilePath, 'utf-8');
-        return JSON.parse(data);
+        await ensureDirectoryExists(ExportFilePath);
+        const desiredList = await getJsonList(Desired_MemberList_FilePath)
+        return desiredList
     } catch (err) {
         console.error(`Load_Desired_MemberList error: ${err.message}`);
         return [];
     }
 }
 
-export function addDesiredMember(memberName) {
+export async function addDesiredMember(memberName) {
     try {
-        if (!fs.existsSync(ExportFilePath)) {
-            fs.mkdirSync(ExportFilePath, { recursive: true });
-        }
-        let desiredList = [];
-        if (fs.existsSync(Desired_MemberList_FilePath)) {
-            desiredList = JSON.parse(
-                fs.readFileSync(Desired_MemberList_FilePath, 'utf-8')
-            );
-        }
+        await ensureDirectoryExists(ExportFilePath);
+        const desiredList = await getJsonList(Desired_MemberList_FilePath)
         desiredList.push(memberName);
-        fs.writeFileSync(
+        await fs.promises.writeFile(
             Desired_MemberList_FilePath,
             JSON.stringify(desiredList, null, 2),
             'utf-8'
@@ -833,20 +779,14 @@ export function addDesiredMember(memberName) {
     }
 }
 
-export function removeDesiredMember(memberName) {
+export async function removeDesiredMember(memberName) {
     try {
-        if (!fs.existsSync(ExportFilePath)) {
-            fs.mkdirSync(ExportFilePath, { recursive: true });
-        }
-        if (!fs.existsSync(Desired_MemberList_FilePath)) return false;
-
-        const desiredList = JSON.parse(
-            fs.readFileSync(Desired_MemberList_FilePath, 'utf-8')
-        );
+        await ensureDirectoryExists(ExportFilePath)
+        const desiredList = await getJsonList(Desired_MemberList_FilePath)
         const index = desiredList.indexOf(memberName);
         if (index === -1) return false;
         desiredList.splice(index, 1);
-        fs.writeFileSync(
+        await fs.promises.writeFile(
             Desired_MemberList_FilePath,
             JSON.stringify(desiredList, null, 2),
             'utf-8'

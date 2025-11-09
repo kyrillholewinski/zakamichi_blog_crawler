@@ -22,11 +22,11 @@ import {
 } from './global.js'; // or wherever your global methods are
 
 // If you keep your "controller" modules in a folder "controller", import them:
-import { Hinatazaka46_Crawler, Hinatazaka46_History_Crawler } from './controller/hinatazaka.js';
+import { Hinatazaka46_Blog_Crawler, Hinatazaka46_History_Crawler } from './controller/hinatazaka.js';
 import { Keyakizaka46_Crawler } from './controller/keyakizaka.js';
-import { Sakurazaka46_Crawler, Sakurazaka46_History_Crawler } from './controller/sakurazaka.js';
-import { Nogizaka46_Crawler } from './controller/nogizaka.js';
-import { Bokuao_Crawler } from './controller/bokuao.js';
+import { Sakurazaka46_Blog_Crawler, Sakurazaka46_History_Crawler } from './controller/sakurazaka.js';
+import { Nogizaka46_Blog_Crawler } from './controller/nogizaka.js';
+import { Bokuao_Blog_Crawler } from './controller/bokuao.js';
 
 
 const app = express()
@@ -37,10 +37,10 @@ const port = 5016
 // Helper to run all crawlers in parallel
 async function crawlAll() {
     await Promise.all([
-        Hinatazaka46_Crawler(),
-        Sakurazaka46_Crawler(),
-        Nogizaka46_Crawler(),
-        Bokuao_Crawler(),
+        Hinatazaka46_Blog_Crawler(),
+        Sakurazaka46_Blog_Crawler(),
+        Nogizaka46_Blog_Crawler(),
+        Bokuao_Blog_Crawler(),
     ]);
 }
 
@@ -121,7 +121,7 @@ function getWebsite(body) {
         `
 }
 
-app.get('/blogChart',async (req, res) => {
+app.get('/blogChart', async (req, res) => {
     // Default to a specific month/year if not provided, e.g., November 2015 from your data
     const year = parseInt(req.query.year, 10) || 2025;
     const month = parseInt(req.query.month, 10) || 10;
@@ -313,7 +313,7 @@ app.get('/export', async (req, res) => {
         const memberBlogsToExport = member
             ? allMembers.filter(m => m.Name === member && m.Group === group)
             : allMembers.filter(m => desired.includes(m.Name));
-
+ß
         const blogsToExport = blogId
             ? memberBlogsToExport.map(m => ({ Group: m.Group, Name: m.Name, BlogList: m.BlogList.filter(b => b.ID === blogId) }))
             : memberBlogsToExport
@@ -478,7 +478,7 @@ app.get('/members/blogs', async (req, res) => {
 // Single Blog
 app.get('/members/blog', async (req, res) => {
     const { member, group, blogId } = req.query;
-        const allMembers = await getFullMemberList();
+    const allMembers = await getFullMemberList();
     const selected = allMembers.find(m => m.Name === member);
     const blogIndex = selected?.BlogList.findIndex(b => b.ID == blogId);
     const blog = selected?.BlogList[blogIndex];
@@ -513,12 +513,12 @@ app.get('/members/blog', async (req, res) => {
 });
 
 // Just an example: "Add desired member" as an API
-app.get('/members/add', (req, res) => {
+app.get('/members/add', async (req, res) => {
     const { member } = req.query;
     if (!member) {
         return res.status(400).json({ error: 'member is required' });
     }
-    const success = addDesiredMember(member);
+    const success = await addDesiredMember(member);
     if (success) {
         res.redirect('/');
     } else {
@@ -527,10 +527,10 @@ app.get('/members/add', (req, res) => {
 });
 
 // Just an example: "Add desired member" as an API
-app.get('/members/remove', (req, res) => {
+app.get('/members/remove', async (req, res) => {
     const { member } = req.query;
     if (member) {
-        const success = removeDesiredMember(member);
+        const success = await removeDesiredMember(member);
         if (success) {
             res.redirect('/');
         } else {
@@ -674,13 +674,13 @@ async function pollAllGroups() {
     }
     console.log('--- 🔄 Polling all groups ---');
     await Promise.all([
-        Hinatazaka46_Crawler(),
-        Sakurazaka46_Crawler(),
-        Nogizaka46_Crawler()
+        Hinatazaka46_Blog_Crawler(),
+        Sakurazaka46_Blog_Crawler(),
+        Nogizaka46_Blog_Crawler()
     ]);
 
     if (isBokuaoPollingActive()) {
-        await Bokuao_Crawler();
+        await Bokuao_Blog_Crawler();
     }
     console.log('--- ✅ Polling completed ---');
 }

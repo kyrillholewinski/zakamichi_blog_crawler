@@ -3,6 +3,7 @@ import fs from 'fs';
 import {
     loadExistingBlogs,
     saveBlogsToFile,
+    saveBlogHtmlContent,
     getHtmlDocument,
     parseDateTime,
     getElementInnerText,
@@ -56,7 +57,7 @@ const sakurazaka46_Members = {
 /**
  * Equivalent to: public static void Sakurazaka46_Crawler()
  */
-export async function Sakurazaka46_Crawler() {
+export async function Sakurazaka46_Blog_Crawler() {
     // Load existing blogs from JSON
     const Blogs = await loadExistingBlogs(Sakurazaka46_BlogStatus_FilePath);
     const oldBlogsCount = Object.keys(Blogs).length;
@@ -114,7 +115,7 @@ async function processPages(threadId, threadCount, Blogs) {
 
                 for (const element of exactLiBox) {
                     // If processBlog returns false, stop reading more from this page
-                    const shouldContinue = await processBlog(element, currentPage,Blogs);
+                    const shouldContinue = await processBlog(element, currentPage, Blogs);
                     if (!shouldContinue) {
                         //console.log(`Stopping further processing on Page ${currentPage}`);
                         return;
@@ -135,7 +136,7 @@ async function processPages(threadId, threadCount, Blogs) {
 /**
  * Equivalent to: private static bool ProcessBlog(HtmlNode element, int currentPage)
  */
-async function processBlog(element, currentPage,Blogs) {
+async function processBlog(element, currentPage, Blogs) {
     const startTime = Date.now();
 
     // The blog URL is from the first <a> child
@@ -180,9 +181,10 @@ async function processBlog(element, currentPage,Blogs) {
                 Name: blogMemberName,
                 Title: blogTitle,
                 DateTime: parseDateTime(blogDateTime, DateFormats[4]),
-                ImageList: imageList,
-                Content: article.innerHTML
+                ImageList: imageList
             };
+
+            await saveBlogHtmlContent(blogID, IdolGroup.Sakurazaka46, article.innerHTML)
 
             const diff = (Date.now() - startTime) / 1000; // in seconds
             console.log(

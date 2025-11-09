@@ -16,6 +16,7 @@ import {
     IdolGroup,
     blogThread,
     getJson,
+    saveBlogHtmlContent,
 } from '../global.js'; // <-- Adjust path to your global.js
 import pLimit from 'p-limit';
 // This object holds your blog entries, keyed by blog ID
@@ -31,7 +32,7 @@ const Hinatazaka46_Members = {
 /**
  * Equivalent to: public static void Hinatazaka46_Crawler()
  */
-export async function Hinatazaka46_Crawler() {
+export async function Hinatazaka46_Blog_Crawler() {
     // Load existing blogs from file
     const Blogs = await loadExistingBlogs(Hinatazaka46_BlogStatus_FilePath);
 
@@ -91,7 +92,7 @@ export async function Hinatazaka46_History_Crawler() {
         }
     }
 
-    fs.writeFileSync(
+    await fs.promises.writeFile(
         Hinatazaka46_History_FilePath,
         JSON.stringify(history_photos_col, null, 2),
         'utf-8'
@@ -192,8 +193,9 @@ async function processBlog(element, currentPage, Blogs) {
             Title: blogTitle,
             DateTime: parseDateTime(blogDateTime, DateFormats[0], true), // japanTime: true
             ImageList: imageList,
-            Content: blogInnerTextNode.innerHTML
         };
+
+        await saveBlogHtmlContent(blogID, IdolGroup.Hinatazaka46, blogInnerTextNode.innerHTML)
 
         Blogs[blogID] = blogObj;
 
@@ -208,14 +210,6 @@ async function processBlog(element, currentPage, Blogs) {
         );
         return true;
     } else {
-        if (!Blogs[blogID].Content) {
-            // The blog text area to find images
-            const blogInnerTextNode = element.querySelector("div.c-blog-article__text");
-            Blogs[blogID].Content = blogInnerTextNode.innerHTML;
-            // If blog already known, skip
-            console.log("\x1b[33m%s\x1b[0m", `Duplicate Blog Id ${blogID} but no content for Member ${blogMemberName} found on Page ${currentPage}`);
-        }
-
         return false;
     }
 }

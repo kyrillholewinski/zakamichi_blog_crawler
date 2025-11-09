@@ -12,6 +12,7 @@ import {
     DateFormats,
     IdolGroup,
     blogThread,
+    saveBlogHtmlContent,
 } from '../global.js'; // Adjust path to your global.js
 
 
@@ -46,9 +47,9 @@ const BokuaoCookies = [
         Domain: "bokuao.com",
         Value: "eedd284297c9c9b766602c93867d67df885e483772394b83ca4ed8ac6af5a5f1"
     },
-    {Name: "_ga", Domain: ".bokuao.com", Value: "GA1.1.1597477387.1689080792"},
-    {Name: "_ga_REPH28T1S0", Domain: ".bokuao.com", Value: "GS1.1.1720706617.17.1.1720706833.0.0.0"},
-    {Name: "PHPSESSID", Domain: "bokuao.com", Value: "1lg5idofatd9s720dp8ng4sal0"},
+    { Name: "_ga", Domain: ".bokuao.com", Value: "GA1.1.1597477387.1689080792" },
+    { Name: "_ga_REPH28T1S0", Domain: ".bokuao.com", Value: "GS1.1.1720706617.17.1.1720706833.0.0.0" },
+    { Name: "PHPSESSID", Domain: "bokuao.com", Value: "1lg5idofatd9s720dp8ng4sal0" },
 ];
 
 // We skip these images entirely
@@ -61,7 +62,7 @@ const ignoreImgs = [
 /**
  * Equivalent to: public static void Bokuao_Crawler()
  */
-export async function Bokuao_Crawler() {
+export async function Bokuao_Blog_Crawler() {
     // 1) Load existing blogs from file
     const Blogs = await loadExistingBlogs(Bokuao_BlogStatus_FilePath);
     const oldBlogsCount = Object.keys(Blogs).length;
@@ -69,7 +70,7 @@ export async function Bokuao_Crawler() {
     // 2) Concurrency approach
     const tasks = [];
     for (let i = 0; i < blogThread; i++) {
-        tasks.push(processPages(i, blogThread,Blogs));
+        tasks.push(processPages(i, blogThread, Blogs));
     }
     await Promise.all(tasks);
 
@@ -83,7 +84,7 @@ export async function Bokuao_Crawler() {
 /**
  * Equivalent to: private static void ProcessPages(int threadId, int threadCount)
  */
-async function processPages(threadId, threadCount,Blogs) {
+async function processPages(threadId, threadCount, Blogs) {
     // Start from page = threadId+1 (like your C# code)
     // and go up to 1000 in increments of threadCount
     for (let currentPage = threadId + 1; currentPage <= 1000; currentPage += threadCount) {
@@ -98,7 +99,7 @@ async function processPages(threadId, threadCount,Blogs) {
             ) {
                 const nodeCollection = htmlDocument.querySelectorAll("li[data-delighter]");
                 for (const element of nodeCollection) {
-                    const shouldContinue = await processBlog(element, currentPage,Blogs);
+                    const shouldContinue = await processBlog(element, currentPage, Blogs);
                     if (!shouldContinue) {
                         return;
                     }
@@ -117,7 +118,7 @@ async function processPages(threadId, threadCount,Blogs) {
 /**
  * Equivalent to: private static bool ProcessBlog(HtmlNode element, int currentPage)
  */
-async function processBlog(element, currentPage,Blogs) {
+async function processBlog(element, currentPage, Blogs) {
     const startTime = Date.now();
 
     // The first <a> in this element
@@ -161,6 +162,8 @@ async function processBlog(element, currentPage,Blogs) {
                 };
 
                 Blogs[blogID] = blog;
+
+                await saveBlogHtmlContent(ID, IdolGroup.Bokuao, article.innerHTML)
                 const diff = ((Date.now() - startTime) / 1000).toFixed(3);
                 console.log("\x1b[32m%s\x1b[0m",
                     `Blog ID:[${blog.ID}][${blog.Name}]` +

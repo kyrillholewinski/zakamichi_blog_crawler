@@ -6,6 +6,7 @@ import {
     IdolGroup,
     Nogizaka46_BlogStatus_FilePath,
     parseDateTime, saveBlogsToFile,
+    saveBlogHtmlContent,
     blogThread,
 } from '../global.js'; // adjust path to wherever your global.js is located
 // If using node-html-parser or similar to parse HTML:
@@ -71,7 +72,7 @@ async function getNogizakaBlogList(uri) {
 /**
  * Equivalent to: private static bool GetBlogsInfo(int threadId)
  */
-async function getBlogsInfo(threadId,Blogs) {
+async function getBlogsInfo(threadId, Blogs) {
     // e.g. https://www.nogizaka46.com/s/n46/api/list/blog?rw=128&st=0&callback=res
     const uri = `https://www.nogizaka46.com/s/n46/api/list/blog?rw=${blogPerThread}&st=${threadId * blogPerThread}&callback=res`;
 
@@ -95,14 +96,15 @@ async function getBlogsInfo(threadId,Blogs) {
             ImageList: htmlDocument
                 .querySelectorAll("img")
                 .map(e => e.getAttribute("src"))
-                .filter(Boolean),
-            Content: blogData.text
+                .filter(Boolean)
         };
+
 
         // Replace "TryAdd" logic
         // If blog ID doesn't exist in Nogizaka46_Blogs, add it.
         if (!(blog.ID in Blogs)) {
             Blogs[blog.ID] = blog;
+            await saveBlogHtmlContent(blogData.code, IdolGroup.Hinatazaka46, blogData.text)
             const diff = (Date.now() - start) / 1000;
             console.log("\x1b[32m%s\x1b[0m", `Blog ID:[${blog.ID}][${blog.Name}]` + `Date:[${blog.DateTime}] ` + `ImgCount:[${blog.ImageList.length}]` + `Page:[${threadId}]` + `ProcessingTime:[${diff.toFixed(3)}s]`);
         } else {
@@ -117,7 +119,7 @@ async function getBlogsInfo(threadId,Blogs) {
 /**
  * Equivalent to: public static void Nogizaka46_Crawler()
  */
-export async function Nogizaka46_Crawler() {
+export async function Nogizaka46_Blog_Crawler() {
     // 1) Load existing blogs from file, put them into a dictionary
     const existingMembers = await getJsonList(Nogizaka46_BlogStatus_FilePath);
 
@@ -136,7 +138,7 @@ export async function Nogizaka46_Crawler() {
     //    In your code, you used: int threadNumber = Environment.ProcessorCount;
     //    We'll do the same with threadCount from global.js
     for (let threadId = 0; threadId < blogThread; threadId++) {
-        const keepLoop = await getBlogsInfo(threadId,Blogs);
+        const keepLoop = await getBlogsInfo(threadId, Blogs);
         if (!keepLoop) {
             break;
         }
